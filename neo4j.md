@@ -712,3 +712,325 @@ RETURN p, m;
 ---
 
 *These notes are a learning reference. Check the Neo4j documentation for version-specific Cypher syntax and database behavior before applying commands in production.*
+
+
+---
+
+# 13. Cypher fundamentals, filtering, and data modification
+
+This section adds the Cypher topics from the handwritten study notes: naming conventions, filtering with `WHERE`, relationship traversal, graph metadata, and creating, updating, and deleting graph data.
+
+## 13.1 Cypher naming and case conventions
+
+The study notes use these conventions:
+
+| Element | Recommended style | Example |
+|---|---|---|
+| Node labels | PascalCase / CamelCase | `Person`, `Movie` |
+| Property keys | camelCase | `firstName`, `releasedYear` |
+| Variables | camelCase | `person`, `movie` |
+| Cypher keywords | UPPERCASE | `MATCH`, `WHERE`, `RETURN` |
+
+Cypher keywords are case-insensitive, but using uppercase keywords makes queries easier to scan. Labels, property keys, and variables should be written consistently because their identifiers are case-sensitive.
+
+## 13.2 Filtering with WHERE
+
+The `WHERE` clause filters the rows produced by a `MATCH` pattern. It is generally clearer to keep filtering conditions in `WHERE` rather than trying to put every condition directly into the pattern.
+
+```cypher
+MATCH (p:Person)
+WHERE p.name = 'Tom Hanks'
+RETURN p;
+```
+
+Multiple conditions can be combined with `AND`, `OR`, and `NOT`:
+
+```cypher
+MATCH (m:Movie)
+WHERE m.released >= 2000
+  AND m.released <= 2023
+RETURN m.title, m.released;
+```
+
+The same range can also be expressed using a comparison chain:
+
+```cypher
+MATCH (m:Movie)
+WHERE 2000 <= m.released <= 2023
+RETURN m.title, m.released;
+```
+
+Check whether a property exists and is not null:
+
+```cypher
+MATCH (m:Movie)
+WHERE m.tagline IS NOT NULL
+RETURN m.title, m.tagline;
+```
+
+## 13.3 Partial-string filtering
+
+Cypher provides operators for matching part of a string:
+
+| Operator | Meaning | Example |
+|---|---|---|
+| `STARTS WITH` | String begins with the given text | `p.name STARTS WITH 'Mich'` |
+| `ENDS WITH` | String ends with the given text | `p.name ENDS WITH 'Hanks'` |
+| `CONTAINS` | String contains the given text | `p.name CONTAINS 'cha'` |
+
+Example:
+
+```cypher
+MATCH (p:Person)
+WHERE p.name STARTS WITH 'Michael'
+RETURN p.name;
+```
+
+For case-insensitive matching, normalize the property and comparison value to the same case:
+
+```cypher
+MATCH (p:Person)
+WHERE toLower(p.name) = toLower('MICHAEL')
+RETURN p;
+```
+
+Other useful string functions include `toUpper()` and `toLower()`.
+
+## 13.4 Filtering with lists and NOT
+
+Use `IN` to check whether a value occurs in a list:
+
+```cypher
+MATCH (p:Person)
+WHERE p.born IN [1995, 1965, 1970]
+RETURN p.name, p.born;
+```
+
+Use `NOT` to exclude a condition or graph pattern. For example, find people who wrote a movie but did not direct it:
+
+```cypher
+MATCH (p:Person)-[:WROTE]->(m:Movie)
+WHERE NOT (p)-[:DIRECTED]->(m)
+RETURN p.name, m.title;
+```
+
+The negated pattern is evaluated for the same person and movie matched by the main pattern.
+
+## 13.5 Traversing relationships in either direction
+
+A relationship in the stored graph has a direction. A query can explicitly match that direction:
+
+```cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN p, m;
+```
+
+To traverse from the movie back to the person, reverse the pattern:
+
+```cypher
+MATCH (m:Movie)<-[:ACTED_IN]-(p:Person)
+RETURN m, p;
+```
+
+If direction is not important for a particular match, an undirected pattern can be used:
+
+```cypher
+MATCH (p:Person)-[:ACTED_IN]-(m:Movie)
+RETURN p, m;
+```
+
+## 13.6 Filter using relationship properties
+
+A relationship can contain properties just like a node. For example, a person's role in a movie can be stored on the `ACTED_IN` relationship:
+
+```cypher
+MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+WHERE 'Neo' IN r.roles
+RETURN p.name, m.title, r.roles;
+```
+
+This finds people whose `ACTED_IN` relationship contains the role `Neo`.
+
+## 13.7 Inspecting properties and graph metadata
+
+Use `keys()` to retrieve the property names present on a particular node or relationship:
+
+```cypher
+MATCH (p:Person)
+RETURN p.name, keys(p);
+```
+
+Different nodes with the same label can have different property sets. For example, one Person node may have `name` and `born`, while another may also have `bio`.
+
+To retrieve property keys used in the graph, the study notes use:
+
+```cypher
+CALL db.propertyKeys();
+```
+
+To retrieve labels present in the database:
+
+```cypher
+CALL db.labels();
+```
+
+These procedures report graph-wide metadata rather than the properties of only one matched node.
+
+## 13.8 Creating nodes: CREATE versus MERGE
+
+Use `CREATE` when a new node or relationship should be created every time the query runs:
+
+```cypher
+CREATE (p:Person {name: 'Naveen'});
+```
+
+Running this query repeatedly can create duplicate Person nodes with the same name.
+
+Use `MERGE` when you want to match the specified pattern if it exists, or create it if it does not:
+
+```cypher
+MERGE (p:Person {id: 'person-001'})
+RETURN p;
+```
+
+A `MERGE` pattern should contain a reliable identifying property. The study notes emphasize specifying a unique primary-key-like property when creating a node with `MERGE`. In a real database, enforce the intended uniqueness with a uniqueness constraint where appropriate.
+
+**Choosing between them:**
+
+- Use `MERGE` for identity-based, match-or-create operations.
+- Use `CREATE` when every execution is intended to create a new entity or event, such as a new sensor reading or transaction record.
+- Do not use `CREATE` as a substitute for checking identity when duplicates are not wanted.
+
+## 13.9 Creating a relationship with MERGE
+
+A relationship can be merged between already matched nodes:
+
+```cypher
+MATCH (p:Person {name: 'Naveen'}),
+      (m:Movie {title: 'The Matrix'})
+MERGE (p)-[:ACTED_IN]->(m);
+```
+
+This matches or creates the directed `ACTED_IN` relationship from the Person to the Movie. The direction in the pattern matters.
+
+## 13.10 Updating properties with SET and REMOVE
+
+Use `SET` to add a property or update its value:
+
+```cypher
+MATCH (m:Movie {title: 'The Matrix'})
+SET m.released = 2008
+RETURN m;
+```
+
+Multiple properties can be set in one clause:
+
+```cypher
+MATCH (m:Movie {title: 'The Matrix'})
+SET m.tagline = 'A world within a world',
+    m.released = 1999
+RETURN m;
+```
+
+Use `REMOVE` to remove a property:
+
+```cypher
+MATCH (m:Movie {title: 'The Matrix'})
+REMOVE m.tagline
+RETURN m;
+```
+
+The property is removed from the node; `REMOVE` is not used to assign a null value.
+
+## 13.11 Conditional behavior in MERGE
+
+`ON CREATE SET` applies only when `MERGE` creates the pattern. `ON MATCH SET` applies when the pattern already exists.
+
+```cypher
+MERGE (p:Person {name: 'Mckenna Grace'})
+ON CREATE SET p.createdAt = datetime()
+ON MATCH SET p.updatedAt = datetime()
+RETURN p;
+```
+
+This is useful when tracking when an entity was first created and when an existing entity was most recently encountered.
+
+## 13.12 Deleting nodes and relationships
+
+First match the element that should be deleted. Use `DELETE` to delete a relationship:
+
+```cypher
+MATCH (p:Person {name: 'Jane Doe'})-[r:ACTED_IN]->()
+DELETE r;
+```
+
+Use `DELETE` to delete a node only when it has no relationships:
+
+```cypher
+MATCH (p:Person {name: 'Jane Doe'})
+DELETE p;
+```
+
+A node that still has relationships cannot be deleted with plain `DELETE`. Use `DETACH DELETE` when the intention is to delete the node and all relationships connected to it:
+
+```cypher
+MATCH (p:Person {name: 'John Doe'})
+DETACH DELETE p;
+```
+
+To delete every node and relationship in the database:
+
+```cypher
+MATCH (n)
+DETACH DELETE n;
+```
+
+**Warning:** The last query is destructive and removes the entire graph. Always inspect the matched data and confirm the target database before running deletion queries.
+
+## 13.13 Adding and removing labels
+
+Use `SET` to add a label to a node:
+
+```cypher
+MATCH (p:Person {name: 'Naveen'})
+SET p:Developer
+RETURN p;
+```
+
+Use `REMOVE` to remove a label:
+
+```cypher
+MATCH (p:Person {name: 'Naveen'})
+REMOVE p:Developer
+RETURN p;
+```
+
+The node remains in the graph; only the specified label is changed.
+
+---
+
+## 14. Quick revision: filtering and data modification
+
+| Requirement | Cypher pattern |
+|---|---|
+| Filter rows | `WHERE condition` |
+| Check a range | `WHERE 2000 <= m.released <= 2023` |
+| Check property presence | `WHERE m.tagline IS NOT NULL` |
+| Match a prefix | `STARTS WITH` |
+| Match a suffix | `ENDS WITH` |
+| Match a substring | `CONTAINS` |
+| Match any value in a list | `IN [value1, value2]` |
+| Exclude a pattern | `WHERE NOT (a)-[:TYPE]->(b)` |
+| Get property names | `keys(n)` |
+| Get graph property keys | `CALL db.propertyKeys()` |
+| Get graph labels | `CALL db.labels()` |
+| Create unconditionally | `CREATE` |
+| Match or create | `MERGE` |
+| Update or add a property | `SET` |
+| Remove a property or label | `REMOVE` |
+| Delete a relationship | `DELETE r` |
+| Delete a node and its relationships | `DETACH DELETE n` |
+| Set values only on creation | `ON CREATE SET` |
+| Set values only on a match | `ON MATCH SET` |
+
+*Reminder: run destructive queries only after checking the matched records. Use a stable unique identifier for identity-based MERGE operations.*
