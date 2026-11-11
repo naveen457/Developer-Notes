@@ -1034,3 +1034,303 @@ The node remains in the graph; only the specified label is changed.
 | Set values only on a match | `ON MATCH SET` |
 
 *Reminder: run destructive queries only after checking the matched records. Use a stable unique identifier for identity-based MERGE operations.*
+
+
+---
+
+# 15. Building a domain graph
+
+A **domain graph** models the important concepts in a particular application domain and the relationships between them. The goal is to translate the application's needs and the questions users ask into nodes, relationships, and properties.
+
+Domain graph modelling is iterative rather than a one-pass exercise:
+
+1. Start with the domain and the questions the application needs to answer.
+2. Identify the important concepts and represent them as nodes.
+3. Connect the nodes using meaningful, named relationships.
+4. Check the model against real questions.
+5. If the model cannot answer a question clearly, refine it by adding or changing nodes, relationships, or properties.
+6. Repeat with the next question and refine the domain scope as understanding improves.
+
+The central modelling test is practical: **does the graph answer the real questions the application needs to answer?**
+
+## 15.1 A useful modelling rule
+
+The handwritten notes capture a simple naming guideline:
+
+> (Noun) — [VERB] → (Noun)
+
+Use nouns for the entities and verbs for the relationships between them.
+
+For example:
+
+```text
+(Tom Hanks:Person) ──ACTED_IN──> (Forrest Gump:Movie)
+(Forrest Gump:Movie) ──IN_GENRE──> (Drama:Genre)
+(User) ──RATED──> (Forrest Gump:Movie)
+```
+
+This makes the graph readable: the nodes represent things, while the relationship types describe what connects them.
+
+## 15.2 Anchor nodes
+
+Not every noun in a domain needs to become a node. An **anchor node** is an important entity through which many of the application's questions and graph traversals begin.
+
+When choosing anchors, ask:
+
+- Which entities do users commonly start their questions with?
+- Which nodes are likely to be revisited by many query paths?
+- Which entities provide a useful starting point for traversing the model?
+
+For example, in a movie domain, Person and Movie can be useful anchors because questions often begin with an actor, director, movie, or genre. The best anchors depend on the application's actual query patterns.
+
+## 15.3 Properties versus relationships
+
+When modelling a fact, decide whether it should be represented as a property or as its own relationship or node.
+
+- Use a **property** for a value that describes an entity or a relationship, such as a movie's release year or a rating value.
+- Use a **relationship** when the fact connects two entities and that connection is meaningful to traverse.
+- Consider a separate **node** when the concept has its own identity, attributes, or connections to other entities.
+
+For example, a user's rating can be represented as a relationship with a rating property:
+
+```cypher
+MATCH (u:User {id: 'user-1'})
+MATCH (m:Movie {title: 'Forrest Gump'})
+MERGE (u)-[r:RATED]->(m)
+SET r.rating = 5;
+```
+
+Whether a connection deserves its own relationship or a richer intermediate node depends on how the application needs to query and describe it.
+
+---
+
+# 16. Domain graphs, lexical graphs, entity graphs, and ontologies
+
+Unstructured content can be transformed into connected representations in more than one way. The notes distinguish lexical graphs and entity graphs as two approaches.
+
+## 16.1 Lexical graphs
+
+A **lexical graph** represents the content and structure of a document itself. It focuses on what the document says and how its pieces are arranged, rather than only extracting real-world entities.
+
+A basic approach is to split a document into chunks and preserve their order:
+
+```text
+(Review)
+   ├──HAS_CHUNK──> (Chunk 1)
+   │                  |
+   │              NEXT_CHUNK
+   │                  |
+   └──HAS_CHUNK──> (Chunk 2)
+```
+
+For longer documents, a flat list of chunks may lose useful structure. Documents can contain sections and subsections, so model those levels too:
+
+```text
+(Production Report)
+   ├──HAS_SECTION──> (Filming Section)
+   │                     └──HAS_CHUNK──> (Chunk)
+   └──HAS_SECTION──> (Reception Section)
+                         └──HAS_CHUNK──> (...)
+```
+
+This preserves document hierarchy and chunk relationships. It can be useful when an application needs to retrieve a passage together with its surrounding section or document context.
+
+## 16.2 Entity graphs
+
+An **entity graph** represents the things mentioned in content and the connections between those things.
+
+For example, two chapters might mention people, locations, or themes:
+
+```text
+(Chapter 1) ──MENTIONS──> (Tom Hanks:Person)
+(Chapter 1) ──MENTIONS──> (Savannah:Location)
+
+(Chapter 2) ──MENTIONS──> (Tom Hanks:Person)
+(Chapter 2) ──MENTIONS──> (Redemption:Theme)
+(Chapter 2) ──MENTIONS──> (Robin Wright:Person)
+```
+
+The same entity can be connected to multiple chunks or chapters. This links references across the document collection instead of keeping every mention isolated.
+
+## 16.3 How the representations work together
+
+Lexical graphs and entity graphs are not mutually exclusive models. They are different layers of representation that can be connected:
+
+- The lexical layer preserves the document, section, chunk, and ordering structure.
+- The entity layer captures people, places, organizations, concepts, and other extracted entities.
+- Relationships between the layers connect a source passage to the entities it mentions.
+
+Together, they allow an application to move from a retrieved chunk to the entities mentioned in it, and from an entity to other chunks where it appears.
+
+## 16.4 Ontology: rules for the graph
+
+An **ontology** is not the data itself. It defines the rules and meaning of the model: what kinds of things are allowed to exist and how they fit together.
+
+For example, an ontology can specify that an Actor is a kind of Person and a Director is also a kind of Person:
+
+```text
+             (Person)
+              /    \
+         (Actor)  (Director)
+```
+
+This is a type hierarchy: it moves from a general type to more specific types.
+
+An ontology helps establish:
+
+- Which labels or entity types should be used.
+- Which relationships are meaningful or permitted.
+- How entity types relate to one another.
+- Consistent naming and classification rules for future extracted entities.
+
+For example, if an extraction system identifies someone as an Actor, the ontology provides the type vocabulary and hierarchy that the application should follow. It also helps resolve naming ambiguity, such as whether a domain concept should be called Customer or Client.
+
+**Key distinction:** the graph stores the entities and facts; the ontology describes the vocabulary, types, and rules used to model those facts.
+
+---
+
+# 17. Importing data into Neo4j: choosing an approach
+
+There is no single import method that fits every dataset. Choose an ingestion path based on the kind of data, its volume, whether the load is one-off or continuous, the required load speed, and the amount of application-specific business logic.
+
+The decision flow in the study notes can be summarized as follows.
+
+## 17.1 Start with the kind of data
+
+| Data category | Approach noted in the study material |
+|---|---|
+| Semantic data / RDF | neosemantics (n10s) |
+| Application configuration or DB-form changes | Neo4j migrations / Liquibase |
+| Ordinary data | Continue by considering volume, load requirements, and ingestion pattern |
+
+## 17.2 For ordinary data, consider scale and purpose
+
+Ask these questions in order:
+
+1. **How large is the data?** Is it a small proof of concept, or a large dataset?
+2. **Are very fast initial load times required?** If so, consider a bulk-import route.
+3. **Is the load batch-based or streaming?** A one-off import and a continuous event stream have different requirements.
+4. **Does the ingestion require application-specific business logic?** Simple transformations may fit an ETL tool; complex logic may need a custom application using the Neo4j driver.
+5. **What is the source format?** CSV and other formats may have different import paths.
+
+## 17.3 A practical selection guide
+
+| Situation | Candidate approach from the notes |
+|---|---|
+| Very large initial import where load speed is important | `neo4j-admin database import` |
+| Streaming ingestion | Neo4j Kafka Connector |
+| One-off or batch CSV import | Cypher `LOAD CSV` or Neo4j Data Importer |
+| Simple transformation workflow | An available ETL tool |
+| Complex application-specific ingestion logic | Custom application using a Neo4j driver |
+| RDF / semantic data | neosemantics (n10s) |
+| Application schema/configuration migrations | Migration tooling such as Liquibase |
+
+The choice should be driven by the ingestion requirements rather than by the availability of a particular tool.
+
+---
+
+# 18. Neo4j data-import tools
+
+The study notes list several tools and workflows for moving data into Neo4j.
+
+## 18.1 Neo4j Data Importer
+
+Neo4j Data Importer is a visual, low-code tool for mapping source data into a graph model. It is useful when the import can be described through a mapping workflow rather than custom application code.
+
+Use it when the source data and mapping requirements fit the tool's capabilities.
+
+## 18.2 Cypher LOAD CSV
+
+Cypher provides built-in support for loading CSV files. The source notes highlight using a CSV header and reading the file from a file path.
+
+Example:
+
+```cypher
+LOAD CSV WITH HEADERS FROM 'file:///transactions.csv' AS row
+MERGE (t:Transaction {id: row.id})
+SET t.reference = row.reference,
+    t.amount = toInteger(row.amount),
+    t.timestamp = datetime(row.timestamp)
+RETURN t;
+```
+
+Important points:
+
+- `LOAD CSV WITH HEADERS` exposes each column through the row variable.
+- `row.id`, `row.reference`, and similar expressions access CSV columns.
+- Convert values to the intended data types when loading them.
+- `MERGE` can be used with a stable identifier to avoid creating the same logical entity repeatedly.
+- File access depends on the database's import configuration and deployment environment.
+
+## 18.3 neo4j-admin import
+
+For large initial datasets, the notes identify `neo4j-admin` import as a high-performance bulk-loading option. It is intended for importing large datasets and can be preferable to inserting a very large number of records through ordinary transactional queries.
+
+Use this path when the dataset size and loading requirements justify a bulk import workflow. Check the Neo4j version's command syntax and operational requirements before running it.
+
+## 18.4 Neo4j Kafka Connector
+
+For streaming data, the notes identify the Neo4j Kafka Connector as an ingestion option.
+
+A streaming workflow is appropriate when new events or records need to be processed continuously rather than loaded only once. The connector helps integrate Kafka-based event streams with Neo4j.
+
+## 18.5 ETL tools and custom applications
+
+ETL means **Extract, Transform, Load**:
+
+1. **Extract** data from one or more source systems.
+2. **Transform** it into the desired structure and types.
+3. **Load** the transformed data into Neo4j.
+
+The notes mention Apache Hop as an ETL option. An ETL tool can be suitable when the workflow consists of supported source connections and straightforward transformations.
+
+When the ingestion process contains complex business rules or application-specific behavior, a custom application using a Neo4j driver provides more control.
+
+## 18.6 RDF and semantic data: neosemantics
+
+The notes identify **neosemantics (n10s)** for working with semantic data and RDF in Neo4j.
+
+This is a different import concern from loading ordinary CSV rows: RDF represents information using semantic graph statements, so an RDF-aware integration is appropriate when the source data is already expressed in that model.
+
+## 18.7 Migration tooling
+
+Application configuration and schema changes should be managed deliberately as an application evolves. The notes mention Neo4j migrations and Liquibase as migration-oriented options.
+
+Migration tooling is useful for keeping database changes organized and repeatable across development and deployment environments. It serves a different purpose from bulk-loading a large dataset.
+
+## 18.8 Aura Document Intelligence
+
+The notes also mention **Aura Document Intelligence** as a way to build a knowledge graph from unstructured documents.
+
+The intended workflow is:
+
+1. Provide unstructured documents.
+2. Use the document-intelligence workflow to design or extract a knowledge graph.
+3. Query the resulting graph using Cypher.
+
+This can reduce the amount of manual entity and relationship modelling needed for document-driven graph use cases. Review the product's current capabilities and availability before selecting it for a project.
+
+---
+
+## 19. Quick revision: graph modelling and data ingestion
+
+| Concept / tool | Remember |
+|---|---|
+| Domain graph | Models the concepts and relationships needed to answer domain questions |
+| Iterative modelling | Test the graph against real questions and refine it |
+| Anchor node | A useful starting entity for common query paths |
+| Noun–verb–noun | A practical naming pattern: node, relationship, node |
+| Lexical graph | Preserves document, section, chunk, and ordering structure |
+| Entity graph | Connects extracted entities and their mentions |
+| Ontology | Defines entity types, relationship vocabulary, and modelling rules |
+| Neo4j Data Importer | Visual / low-code graph data mapping |
+| `LOAD CSV` | Load CSV rows through Cypher |
+| `neo4j-admin` import | Bulk import for large initial datasets |
+| Neo4j Kafka Connector | Streaming ingestion |
+| ETL | Extract, transform, and load data |
+| Apache Hop | ETL tool mentioned in the study notes |
+| neosemantics (n10s) | RDF / semantic data integration |
+| Liquibase / migrations | Manage repeatable database changes |
+| Aura Document Intelligence | Document-driven knowledge graph workflow |
+
+**Mental model:** first decide what the graph should represent; then decide how to ingest the data. A well-designed domain model, lexical structure, entity layer, and ontology make the resulting graph easier to query and evolve.
