@@ -20,6 +20,7 @@
 10. [Creating nodes and relationships](#10-creating-nodes-and-relationships)
 11. [Indexes, constraints, and performance](#11-indexes-constraints-and-performance)
 12. [Quick revision](#12-quick-revision)
+13. [Course-by-course practical coverage](#20-course-by-course-practical-coverage)
 
 ---
 
@@ -1334,3 +1335,615 @@ This can reduce the amount of manual entity and relationship modelling needed fo
 | Aura Document Intelligence | Document-driven knowledge graph workflow |
 
 **Mental model:** first decide what the graph should represent; then decide how to ingest the data. A well-designed domain model, lexical structure, entity layer, and ontology make the resulting graph easier to query and evolve.
+
+
+
+---
+
+# 20. Learning reference and acknowledgement
+
+These notes cover the learning path content completed so far: the first four courses in the official **Neo4j GraphAcademy – Sharpen your Cypher** pathway, ending with **Importing Data Fundamentals**.
+
+1. [Neo4j Fundamentals](https://graphacademy.neo4j.com/courses/neo4j-fundamentals)
+2. [Cypher Fundamentals](https://graphacademy.neo4j.com/courses/cypher-fundamentals)
+3. [Graph Data Modeling Fundamentals](https://graphacademy.neo4j.com/courses/modeling-fundamentals)
+4. [Importing Data Fundamentals](https://graphacademy.neo4j.com/courses/importing-fundamentals)
+
+The next courses in the pathway — Intermediate Cypher Queries, Cypher Aggregations, and Cypher Indexes and Constraints — are intentionally not added here because they are beyond the current learning progress.
+
+**Thank you, Neo4j GraphAcademy team, for providing high-quality learning resources, hands-on exercises, and practical examples that make learning graph databases, Cypher, graph data modeling, and data importing clear and engaging.**
+
+
+---
+
+# 20. Course-by-course practical coverage
+
+This section fills in practical topics from the first four courses in the GraphAcademy **Sharpen your Cypher** path. It is intentionally limited to:
+
+1. Neo4j Fundamentals
+2. Cypher Fundamentals
+3. Graph Data Modeling Fundamentals
+4. Importing Data Fundamentals
+
+The examples use a small movie graph so that the same entities and relationships can be followed from modelling, to querying, to importing.
+
+## 20.1 Neo4j Fundamentals: graph thinking and tools
+
+### When is a graph database a good fit?
+
+Use a graph model when the important questions involve connections and paths between entities.
+
+| Use case | Example graph question |
+|---|---|
+| Recommendations | Which movies are liked by users with similar tastes? |
+| Fraud detection | Are two accounts connected through shared devices or identities? |
+| Knowledge graph | Which people, companies, and documents are connected to a topic? |
+| Network management | Which services depend on a service that is failing? |
+| Social network | Who follows the same people as a given user? |
+
+A relational database can also represent connected data, but graph queries express traversals directly through relationships. Choose the database based on the shape of the questions and workload.
+
+### Graph vocabulary
+
+- **Vertex / node:** an entity such as a person, movie, or user.
+- **Edge / relationship:** a named connection between two nodes.
+- **Path:** a sequence of nodes and relationships.
+- **Directed graph:** relationships have a start node and an end node.
+- **Property graph:** nodes and relationships can both store key-value properties.
+
+Example:
+
+```text
+(:Person {name: 'Tom Hanks'})
+       -[:ACTED_IN]->
+(:Movie {title: 'Forrest Gump', released: 1994})
+```
+
+### Neo4j tools: what each is for
+
+| Tool | Main purpose |
+|---|---|
+| Neo4j Browser | Run Cypher, inspect query results, and visualize graph patterns |
+| Neo4j Aura Console | Create and manage cloud-hosted Neo4j database instances |
+| Neo4j Desktop | Manage local projects and database instances (availability/product packaging can vary by release) |
+| Neo4j Data Importer | Visually map CSV columns to nodes, relationships, and properties |
+| Neo4j Bloom | Explore and visualize graph data through a search-oriented interface |
+
+The tool you choose depends on the task: Browser for querying, Console for Aura management, and Data Importer for a visual CSV-to-graph workflow.
+
+## 20.2 Cypher Fundamentals: read and write graph data
+
+### Reading nodes
+
+Return every node with the Person label:
+
+```cypher
+MATCH (p:Person)
+RETURN p;
+```
+
+Return only selected properties:
+
+```cypher
+MATCH (p:Person)
+RETURN p.name AS personName, p.born AS birthYear;
+```
+
+### Finding relationships
+
+Find all people who acted in a movie:
+
+```cypher
+MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+RETURN p, r, m;
+```
+
+The pattern has three parts:
+1. `(p:Person)` matches a Person node.
+2. `-[r:ACTED_IN]->` matches an outgoing ACTED_IN relationship.
+3. `(m:Movie)` matches the connected Movie node.
+
+To find the movies acted in by a particular person:
+
+```cypher
+MATCH (p:Person {name: 'Tom Hanks'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title, m.released
+ORDER BY m.released;
+```
+
+### Filtering query results
+
+```cypher
+MATCH (m:Movie)
+WHERE m.released >= 1990
+  AND m.released <= 2000
+RETURN m.title, m.released
+ORDER BY m.released;
+```
+
+A compact equivalent for a property equality lookup is:
+
+```cypher
+MATCH (m:Movie {title: 'Forrest Gump'})
+RETURN m;
+```
+
+### Creating nodes
+
+```cypher
+CREATE (m:Movie {
+  title: 'The Matrix',
+  released: 1999
+})
+RETURN m;
+```
+
+This creates a new node every time it runs. If you execute it repeatedly, duplicate Movie nodes can be created.
+
+### Creating relationships
+
+Match the two endpoints first, then create the relationship:
+
+```cypher
+MATCH (p:Person {name: 'Keanu Reeves'})
+MATCH (m:Movie {title: 'The Matrix'})
+CREATE (p)-[:ACTED_IN]->(m);
+```
+
+The relationship direction is from Person to Movie. Direction is part of the stored relationship pattern and should represent the domain meaning consistently.
+
+### Updating properties
+
+```cypher
+MATCH (m:Movie {title: 'The Matrix'})
+SET m.tagline = 'Welcome to the Real World'
+RETURN m;
+```
+
+Update several properties in one SET clause:
+
+```cypher
+MATCH (m:Movie {title: 'The Matrix'})
+SET m.released = 1999,
+    m.tagline = 'Welcome to the Real World'
+RETURN m;
+```
+
+### MERGE: match or create
+
+```cypher
+MERGE (m:Movie {title: 'The Matrix'})
+ON CREATE SET m.createdAt = datetime()
+ON MATCH SET m.lastSeenAt = datetime()
+RETURN m;
+```
+
+- If the pattern is not found, MERGE creates it and ON CREATE SET runs.
+- If the pattern already exists, MERGE matches it and ON MATCH SET runs.
+- A property such as title is only a safe identity when the domain guarantees it is unique. Prefer a stable ID and enforce uniqueness with a constraint.
+
+### Deleting data safely
+
+Delete a relationship while keeping its endpoint nodes:
+
+```cypher
+MATCH (p:Person {name: 'Keanu Reeves'})-[r:ACTED_IN]->(m:Movie {title: 'The Matrix'})
+DELETE r;
+```
+
+Delete a node that has no relationships:
+
+```cypher
+MATCH (m:Movie {title: 'Temporary Movie'})
+DELETE m;
+```
+
+Delete a node and all of its relationships only when that is intended:
+
+```cypher
+MATCH (m:Movie {title: 'Temporary Movie'})
+DETACH DELETE m;
+```
+
+**Safety check:** run the MATCH portion with RETURN first to verify exactly which nodes or relationships will be affected. Avoid broad deletion patterns unless you intentionally want to clear the graph.
+
+## 20.3 Graph Data Modeling Fundamentals: design, test, and refactor
+
+Graph modelling is not simply converting every CSV column into a property. Start from the questions the application must answer, then choose nodes, relationships, and properties that make those questions natural to query.
+
+### Step 1: define the domain and questions
+
+For a movie application, example questions might be:
+
+- Which movies did a person act in?
+- Who directed a movie?
+- Which users rated a movie?
+- Which genres does a movie belong to?
+- What is the average rating for each movie?
+
+These questions reveal the entities and connections the model needs.
+
+### Step 2: apply the modelling rule
+
+A useful starting rule is:
+
+**Nouns become candidate nodes; verbs become candidate relationships; descriptive values become properties.**
+
+Example:
+
+```text
+(Person) -[:ACTED_IN]-> (Movie)
+(Person) -[:DIRECTED]-> (Movie)
+(User)   -[:RATED {rating: 5}]-> (Movie)
+(Movie)  -[:IN_GENRE]-> (Genre)
+```
+
+This is a starting point, not an automatic rule. Promote a property to a node when it has its own identity, is shared by many entities, or needs its own relationships.
+
+### Step 3: distinguish nodes, relationships, and properties
+
+| Domain fact | Suggested representation | Why |
+|---|---|---|
+| Movie title | Movie property | Describes one movie |
+| Movie release year | Movie property | Descriptive value |
+| Person acts in movie | ACTED_IN relationship | Connects two entities |
+| User rates movie | RATED relationship | Rating belongs to the user–movie connection |
+| Genre shared by many movies | Genre node | Can be reused and queried as an entity |
+| Actor's role in a movie | Relationship property or Role node | Depends on whether the role needs its own identity/details |
+
+### Step 4: create an initial model
+
+```cypher
+CREATE (p:Person {personId: 'p-101', name: 'Tom Hanks'})
+CREATE (m:Movie {movieId: 'm-101', title: 'Forrest Gump', released: 1994})
+CREATE (g:Genre {name: 'Drama'})
+CREATE (p)-[:ACTED_IN]->(m)
+CREATE (m)-[:IN_GENRE]->(g);
+```
+
+For repeatable setup scripts, use MERGE with stable IDs and suitable uniqueness constraints instead of blindly running CREATE again.
+
+### Step 5: test the model with real questions
+
+A model is not complete just because the nodes and relationships look sensible. Test it by writing queries for the questions identified earlier.
+
+```cypher
+// Which movies did this person act in?
+MATCH (p:Person {personId: 'p-101'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title, m.released;
+```
+
+```cypher
+// Which movies belong to the Drama genre?
+MATCH (m:Movie)-[:IN_GENRE]->(g:Genre {name: 'Drama'})
+RETURN m.title;
+```
+
+If a required question is awkward or impossible to answer, revisit the model. Testing against a small instance graph helps expose missing labels, relationships, and properties before importing a large dataset.
+
+### Step 6: refactor the graph when the model becomes clearer
+
+Refactoring means changing the graph structure to represent the domain more accurately or make common queries easier.
+
+#### Use specific labels thoughtfully
+
+A person can have a general Person label and additional labels when the distinction is meaningful:
+
+```cypher
+MATCH (p:Person {personId: 'p-101'})
+SET p:Actor;
+```
+
+Do not create a new label for every descriptive value or one-off category. Labels should represent useful entity types that help organize and query the graph.
+
+#### Avoid storing repeated shared values everywhere
+
+If many movies share a genre, model Genre as a node rather than copying a genre string onto every movie:
+
+```cypher
+MERGE (g:Genre {name: 'Drama'})
+MATCH (m:Movie {movieId: 'm-101'})
+MERGE (m)-[:IN_GENRE]->(g);
+```
+
+This reduces duplicated descriptive data and makes genre-based traversal straightforward.
+
+#### Use meaningful relationship types
+
+If an application frequently needs to distinguish acting from directing, separate relationship types make the graph explicit:
+
+```text
+(Person)-[:ACTED_IN]->(Movie)
+(Person)-[:DIRECTED]->(Movie)
+```
+
+Do not use one vague relationship type for unrelated meanings if queries need to distinguish them.
+
+#### Consider an intermediate node for complex facts
+
+A simple role can be stored as a relationship property:
+
+```cypher
+MATCH (p:Person {personId: 'p-101'})
+MATCH (m:Movie {movieId: 'm-101'})
+MERGE (p)-[r:ACTED_IN]->(m)
+SET r.role = 'Forrest';
+```
+
+If the role itself needs more details or relationships (for example, screen time, character identity, or links to other story entities), represent it as a node:
+
+```cypher
+MATCH (p:Person {personId: 'p-101'})
+MATCH (m:Movie {movieId: 'm-101'})
+MERGE (role:Role {name: 'Forrest'})
+MERGE (p)-[:PLAYED]->(role)
+MERGE (role)-[:IN_MOVIE]->(m);
+```
+
+Use an intermediate node only when the concept has enough identity or behavior to justify it. Otherwise, a relationship property is simpler.
+
+## 20.4 From domain graph to knowledge graph
+
+A knowledge graph can connect structured entities with information extracted from documents.
+
+### Lexical layer: preserve document structure
+
+```text
+(Document)
+   -[:HAS_SECTION]-> (Section)
+   -[:HAS_CHUNK]-> (Chunk)
+(Chunk)-[:NEXT_CHUNK]->(NextChunk)
+```
+
+The lexical layer keeps track of where information came from and how chunks relate to their original document and section.
+
+### Entity layer: connect mentioned things
+
+```text
+(Chunk)-[:MENTIONS]->(Person)
+(Chunk)-[:MENTIONS]->(Company)
+(Chunk)-[:MENTIONS]->(Location)
+```
+
+The same Person node can be mentioned by multiple chunks. This creates links across documents rather than storing every mention as an isolated string.
+
+### Ontology: keep the vocabulary consistent
+
+An ontology defines the kinds of entities and relationships the application recognizes. For example, Actor and Director can be modeled as more specific kinds of Person. It provides shared modelling rules; it is not a replacement for the actual graph data.
+
+## 20.5 Importing Data Fundamentals: understand the import options
+
+The course's hands-on workflow uses CSV movie and user-rating data and the Neo4j Data Importer. The source files are flat tables; the goal is to map them into connected graph elements.
+
+### Choose an import method
+
+| Method | When it is useful |
+|---|---|
+| Neo4j Data Importer | Visual mapping of CSV columns to nodes and relationships |
+| Cypher `LOAD CSV` | Scriptable CSV imports with custom Cypher transformations |
+| Official Neo4j drivers | Application-controlled ingestion and custom business logic |
+| `neo4j-admin database import` | High-volume initial import where bulk-loading is appropriate |
+
+The right method depends on dataset size, source format, repeatability, transformation needs, and whether the database is already running. The Data Importer is the visual workflow taught in this course.
+
+### Understand the source files before importing
+
+Before mapping CSV data, inspect:
+
+1. What does each row represent?
+2. Which columns identify a record uniquely?
+3. Which columns describe the entity?
+4. Which columns refer to another file's entity?
+5. Are values missing, duplicated, or inconsistent?
+6. Which values should be strings, integers, floats, booleans, dates, or datetimes?
+7. Does the source contain multiple rows for one entity?
+
+Example source files:
+
+**movies.csv**
+
+```csv
+movieId,title,released
+m-101,Forrest Gump,1994
+m-102,Toy Story,1995
+```
+
+**people.csv**
+
+```csv
+personId,name
+p-101,Tom Hanks
+p-102,Tim Allen
+```
+
+**acted_in.csv**
+
+```csv
+personId,movieId,role
+p-101,m-101,Forrest
+p-102,m-102,Buzz Lightyear
+```
+
+**ratings.csv**
+
+```csv
+userId,movieId,rating
+u-1,m-101,5
+u-1,m-102,4
+```
+
+The ID columns connect rows across files. They should be stable and consistently formatted.
+
+## 20.6 Neo4j Data Importer: end-to-end workflow
+
+The Data Importer provides a visual workflow to map source files to a graph model.
+
+1. Open Neo4j Data Importer from the Neo4j tools / Console workflow available in your environment.
+2. Create a new import project.
+3. Add the CSV source files.
+4. Inspect the columns and sample rows.
+5. Create node mappings for entities such as Movie, Person, and User.
+6. Assign a label to each node mapping.
+7. Choose a unique ID field for each entity mapping.
+8. Set the correct property types.
+9. Add relationship mappings between the appropriate node mappings.
+10. Choose the relationship type and direction.
+11. Map source columns to relationship properties when needed.
+12. Review the model and run the import.
+13. Query the database to verify that nodes, relationships, and properties were created correctly.
+
+The exact screen labels can vary as the product evolves, but the mapping concepts remain the same.
+
+### Map CSV columns to node properties
+
+For the movies.csv example:
+
+| CSV column | Graph mapping |
+|---|---|
+| `movieId` | Movie unique identifier |
+| `title` | `Movie.title` string |
+| `released` | `Movie.released` integer |
+
+For the people.csv example:
+
+| CSV column | Graph mapping |
+|---|---|
+| `personId` | Person unique identifier |
+| `name` | `Person.name` string |
+
+### Choose property types deliberately
+
+CSV files store textual representations. The importer must convert values to the intended graph property types.
+
+| Source value | Intended type | Example |
+|---|---|---|
+| `Forrest Gump` | String | `title` |
+| `1994` | Integer | `released` |
+| `4.5` | Float | `rating` |
+| `true` | Boolean | `active` |
+| `2026-11-12` | Date | `createdOn` |
+
+If a numeric value is imported as a string, numeric comparisons and calculations may not behave as intended. Check conversion failures and missing values before importing.
+
+### Unique IDs and constraints
+
+Every entity mapping should use a stable unique identifier. For example, Movie should use movieId rather than title.
+
+A uniqueness constraint can enforce this rule in Neo4j:
+
+```cypher
+CREATE CONSTRAINT movie_id_unique
+FOR (m:Movie)
+REQUIRE m.movieId IS UNIQUE;
+```
+
+Similarly:
+
+```cypher
+CREATE CONSTRAINT person_id_unique
+FOR (p:Person)
+REQUIRE p.personId IS UNIQUE;
+```
+
+A constraint protects data integrity. It also creates or uses an index to support the constrained lookup, depending on the constraint type and Neo4j version.
+
+### Create directed relationships from source IDs
+
+The acted_in.csv file connects people to movies. The relationship should be directed from Person to Movie:
+
+```text
+(Person)-[:ACTED_IN {role: 'Forrest'}]->(Movie)
+```
+
+The personId column identifies the start node; movieId identifies the end node. The role column becomes a relationship property.
+
+### Import user ratings as relationships
+
+A rating belongs to a particular user–movie pair, so model it on the relationship:
+
+```text
+(User)-[:RATED {rating: 5}]->(Movie)
+```
+
+Example Cypher equivalent:
+
+```cypher
+MATCH (u:User {userId: 'u-1'})
+MATCH (m:Movie {movieId: 'm-101'})
+MERGE (u)-[r:RATED]->(m)
+SET r.rating = 5;
+```
+
+If the same user can rate the same movie more than once over time, consider whether a single RATED relationship is sufficient. If rating history matters, an intermediate Rating node with timestamp and other metadata may be a better model.
+
+## 20.7 Verify the imported graph
+
+After importing, do not assume that a successful import means the model is correct. Run checks.
+
+Count nodes by label:
+
+```cypher
+MATCH (m:Movie)
+RETURN count(m) AS movieCount;
+```
+
+Inspect a relationship:
+
+```cypher
+MATCH (p:Person)-[r:ACTED_IN]->(m:Movie)
+RETURN p.name, r.role, m.title
+LIMIT 10;
+```
+
+Inspect user ratings:
+
+```cypher
+MATCH (u:User)-[r:RATED]->(m:Movie)
+RETURN u.userId, m.title, r.rating
+LIMIT 10;
+```
+
+Check for nodes missing identifiers:
+
+```cypher
+MATCH (m:Movie)
+WHERE m.movieId IS NULL
+RETURN m;
+```
+
+Check for duplicate IDs before adding a uniqueness constraint:
+
+```cypher
+MATCH (m:Movie)
+WITH m.movieId AS id, count(*) AS occurrences
+WHERE id IS NOT NULL AND occurrences > 1
+RETURN id, occurrences;
+```
+
+Compare imported counts with source-file row counts, inspect a few sample records, and test the domain questions the model was designed to answer.
+
+## 20.8 Import checklist
+
+- [ ] Source files and headers have been inspected.
+- [ ] Each entity has a stable unique identifier.
+- [ ] Duplicate and missing identifiers have been checked.
+- [ ] Property types are correct.
+- [ ] Node labels match the domain model.
+- [ ] Relationship types and directions are correct.
+- [ ] Relationship properties are mapped to the connection they describe.
+- [ ] Constraints and indexes are considered for important lookup keys.
+- [ ] Import counts are compared with source counts.
+- [ ] Sample traversals and application questions return expected results.
+
+---
+
+# 21. Learning reference and acknowledgement
+
+These notes cover the first four courses in the official **Neo4j GraphAcademy – Sharpen your Cypher** learning path:
+
+1. [Neo4j Fundamentals](https://graphacademy.neo4j.com/courses/neo4j-fundamentals)
+2. [Cypher Fundamentals](https://graphacademy.neo4j.com/courses/cypher-fundamentals)
+3. [Graph Data Modeling Fundamentals](https://graphacademy.neo4j.com/courses/modeling-fundamentals)
+4. [Importing Data Fundamentals](https://graphacademy.neo4j.com/courses/importing-fundamentals)
+
+**Thank you, Neo4j GraphAcademy team, for providing high-quality learning resources, hands-on exercises, and practical examples that make learning graph databases, Cypher, graph data modeling, and data importing clear and engaging.**
