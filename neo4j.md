@@ -250,6 +250,19 @@ A graph database stores relationships as explicit connections between nodes.
 | Relationship traversal | Often requires joins | Follows graph connections |
 | Typical strength | Structured tabular data and transactions | Highly connected data and traversals |
 
+
+### Visual guide: how a property graph is assembled
+
+~~~mermaid
+flowchart LR
+    P["Person node<br/>name: Tom Hanks"] -->|ACTED_IN<br/>role: Forrest| M["Movie node<br/>title: Forrest Gump"]
+    M -->|IN_GENRE| G["Genre node<br/>name: Drama"]
+    U["User node<br/>id: u-1"] -->|RATED<br/>rating: 5| M
+~~~
+
+Read each connection from its start node to its end node. The relationship name describes the fact; relationship properties describe that particular connection.
+
+
 ## 4.1 Why graph traversal can be efficient
 
 In Neo4j's native graph storage, relationships connect records directly. This is often described as **index-free adjacency**: once a starting node is found, traversal can follow its stored relationships rather than repeatedly resolving foreign-key joins.
@@ -1180,6 +1193,32 @@ Lexical graphs and entity graphs are not mutually exclusive models. They are dif
 
 Together, they allow an application to move from a retrieved chunk to the entities mentioned in it, and from an entity to other chunks where it appears.
 
+
+### Visual guide: three complementary graph layers
+
+~~~mermaid
+flowchart TB
+    subgraph L["Lexical layer — where information appears"]
+      D["Document"] -->|HAS_SECTION| S["Section"]
+      S -->|HAS_CHUNK| C["Chunk"]
+      C -->|NEXT_CHUNK| C2["Next chunk"]
+    end
+    subgraph E["Entity layer — what the content mentions"]
+      C -->|MENTIONS| P["Person"]
+      C2 -->|MENTIONS| P
+      C2 -->|MENTIONS| L2["Location"]
+    end
+    subgraph O["Ontology — rules for valid meaning"]
+      R["Person"] -->|is a| A["Actor"]
+      R -->|is a| DR["Director"]
+      V["Vocabulary and relationship rules"]
+    end
+    O -. "constrains labels and relationship meaning" .-> E
+~~~
+
+These are not three names for the same graph. The lexical layer preserves source structure, the entity layer links real-world things mentioned in that source, and the ontology defines the vocabulary and modelling rules used to keep those links consistent.
+
+
 ## 16.4 Ontology: rules for the graph
 
 An **ontology** is not the data itself. It defines the rules and meaning of the model: what kinds of things are allowed to exist and how they fit together.
@@ -1250,6 +1289,27 @@ The choice should be driven by the ingestion requirements rather than by the ava
 # 18. Neo4j data-import tools
 
 The study notes list several tools and workflows for moving data into Neo4j.
+
+
+### Visual guide: choose an import route
+
+~~~mermaid
+flowchart TD
+    A["What are you importing?"] --> B{"RDF / semantic triples?"}
+    B -->|Yes| C["RDF workflow<br/>neosemantics"]
+    B -->|No| D{"Application config<br/>or DBMS settings?"}
+    D -->|Yes| E["Migrations / Liquibase<br/>or configuration workflow"]
+    D -->|No| F{"Need a visual CSV mapping?"}
+    F -->|Yes| G["Neo4j Data Importer"]
+    F -->|No| H{"Need a one-time<br/>large initial load?"}
+    H -->|Yes| I["neo4j-admin database import"]
+    H -->|No| J{"Streaming events?"}
+    J -->|Yes| K["Kafka connector"]
+    J -->|No| N["Cypher LOAD CSV,<br/>ETL, or application driver"]
+~~~
+
+The diagram is a decision aid, not a strict product limitation. Choose based on source format, volume, transformation complexity, whether the database is online, and whether ingestion is one-time or continuous.
+
 
 ## 18.1 Neo4j Data Importer
 
