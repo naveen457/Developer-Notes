@@ -20,8 +20,25 @@
 10. [Creating nodes and relationships](#10-creating-nodes-and-relationships)
 11. [Indexes, constraints, and performance](#11-indexes-constraints-and-performance)
 12. [Quick revision](#12-quick-revision)
-13. [Course-by-course practical coverage](#20-course-by-course-practical-coverage)
+13. [Cypher fundamentals, filtering, and data modification](#13-cypher-fundamentals-filtering-and-data-modification)
+14. [Quick revision: filtering and data modification](#14-quick-revision-filtering-and-data-modification)
+15. [Building a domain graph](#15-building-a-domain-graph)
+16. [Domain graphs, lexical graphs, entity graphs, and ontologies](#16-domain-graphs-lexical-graphs-entity-graphs-and-ontologies)
+17. [Importing data into Neo4j](#17-importing-data-into-neo4j-choosing-an-approach)
+18. [Neo4j data-import tools](#18-neo4j-data-import-tools)
+19. [Quick revision: graph modelling and data ingestion](#19-quick-revision-graph-modelling-and-data-ingestion)
+20. [Learning path scope and acknowledgement](#20-learning-path-scope-and-acknowledgement)
+21. [Course-by-course practical coverage](#21-course-by-course-practical-coverage)
+22. [Controlling and shaping query results](#22-controlling-and-shaping-query-results)
+23. [Aggregating graph data](#23-aggregating-graph-data)
+24. [Working with lists](#24-working-with-lists)
+25. [Working with maps and map projections](#25-working-with-maps-and-map-projections)
+26. [Working with dates, times, and durations](#26-working-with-dates-times-and-durations)
+27. [Graph traversal, anchors, and query performance](#27-graph-traversal-anchors-and-query-performance)
+28. [Pipelining, UNWIND, subqueries, and UNION](#28-pipelining-unwind-subqueries-and-union)
+29. [Parameters and application queries](#29-parameters-and-application-queries)
 
+---
 ---
 
 # 1. Taxonomy vs ontology
@@ -1340,7 +1357,7 @@ This can reduce the amount of manual entity and relationship modelling needed fo
 
 ---
 
-# 20. Learning reference and acknowledgement
+# 20. Learning path scope and acknowledgement
 
 These notes cover the learning path content completed so far: the first four courses in the official **Neo4j GraphAcademy – Sharpen your Cypher** pathway, ending with **Importing Data Fundamentals**.
 
@@ -1356,7 +1373,7 @@ The next courses in the pathway — Intermediate Cypher Queries, Cypher Aggregat
 
 ---
 
-# 20. Course-by-course practical coverage
+# 21. Course-by-course practical coverage
 
 This section fills in practical topics from the first four courses in the GraphAcademy **Sharpen your Cypher** path. It is intentionally limited to:
 
@@ -1935,15 +1952,717 @@ Compare imported counts with source-file row counts, inspect a few sample record
 - [ ] Import counts are compared with source counts.
 - [ ] Sample traversals and application questions return expected results.
 
+
 ---
 
-# 21. Learning reference and acknowledgement
+# 22. Controlling and shaping query results
 
-These notes cover the first four courses in the official **Neo4j GraphAcademy – Sharpen your Cypher** learning path:
+A Cypher query is not only a way to find nodes. It is also a pipeline that can filter, sort, group, reshape, and pass intermediate records from one stage to the next.
 
-1. [Neo4j Fundamentals](https://graphacademy.neo4j.com/courses/neo4j-fundamentals)
-2. [Cypher Fundamentals](https://graphacademy.neo4j.com/courses/cypher-fundamentals)
-3. [Graph Data Modeling Fundamentals](https://graphacademy.neo4j.com/courses/modeling-fundamentals)
-4. [Importing Data Fundamentals](https://graphacademy.neo4j.com/courses/importing-fundamentals)
+## 22.1 The role of WITH
 
-**Thank you, Neo4j GraphAcademy team, for providing high-quality learning resources, hands-on exercises, and practical examples that make learning graph databases, Cypher, graph data modeling, and data importing clear and engaging.**
+WITH passes selected variables and expressions from one part of a query to the next. Think of it as a pipeline boundary: later clauses can use only the variables that WITH carries forward.
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WHERE p.name = 'Tom Hanks'
+WITH p, m
+ORDER BY m.released DESC
+RETURN p.name AS actor, m.title AS movie, m.released AS year;
+~~~
+
+Read it in stages:
+
+1. MATCH finds Person-to-Movie paths.
+2. WHERE keeps paths for Tom Hanks.
+3. WITH passes the matched person and movie to the next stage.
+4. ORDER BY sorts the intermediate rows.
+5. RETURN shapes the final output.
+
+**Scope rule:** if a variable is not included in WITH, it is not available after that boundary. This is a frequent cause of “Variable not defined” errors.
+
+~~~cypher
+// This works because p is carried forward.
+MATCH (p:Person)
+WITH p
+RETURN p.name;
+
+// This fails because p was not carried forward.
+MATCH (p:Person)
+WITH count(p) AS peopleCount
+RETURN p.name;
+~~~
+
+## 22.2 Filtering after an intermediate stage
+
+WITH can filter an aggregate or calculated value. Find actors who have appeared in at least five movies:
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH p, count(m) AS movieCount
+WHERE movieCount >= 5
+RETURN p.name, movieCount
+ORDER BY movieCount DESC;
+~~~
+
+The WHERE after WITH can refer to movieCount because that value was created by the preceding WITH.
+
+## 22.3 OPTIONAL MATCH
+
+MATCH removes a row when its required pattern cannot be found. OPTIONAL MATCH behaves like an optional pattern: if the pattern is absent, the row is retained and variables from the missing part are set to null.
+
+~~~cypher
+MATCH (p:Person)
+WHERE p.name = 'Tom Hanks'
+OPTIONAL MATCH (p)-[:DIRECTED]->(m:Movie)
+RETURN p.name, m.title;
+~~~
+
+This still returns Tom Hanks even if no matching directed movie exists. In that case, m.title is null.
+
+Be careful where filters are placed. A WHERE attached to OPTIONAL MATCH constrains the optional pattern. A later WHERE after WITH filters the resulting rows and can remove rows whose optional values are null.
+
+## 22.4 DISTINCT, ORDER BY, SKIP, and LIMIT
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN DISTINCT p.name AS actor
+ORDER BY actor
+SKIP 10
+LIMIT 5;
+~~~
+
+- DISTINCT removes duplicate result rows.
+- ORDER BY sorts the rows. Without ORDER BY, result order is not guaranteed.
+- SKIP ignores a number of rows; it is commonly used for offset pagination.
+- LIMIT caps the number of rows returned.
+
+For stable pagination, order by a deterministic, unique tie-breaker where possible. Large SKIP values can still require the database to process and discard many rows; keyset-style pagination can be more efficient for large datasets.
+
+## 22.5 Query pipeline at a glance
+
+~~~mermaid
+flowchart TD
+    A["MATCH: find graph patterns"] --> B["WHERE: filter rows"]
+    B --> C["WITH: project values and set scope"]
+    C --> D["ORDER BY / SKIP / LIMIT"]
+    D --> E["RETURN: shape final records"]
+    C --> F["Aggregation or calculation"]
+    F --> D
+~~~
+
+The clauses describe logical query stages. Neo4j's planner may reorder or combine physical operations when safe, so this diagram is a learning model rather than a promise about the exact internal execution plan.
+
+---
+
+# 23. Aggregating graph data
+
+Aggregation converts many matched rows into summary values. It answers questions such as how many movies an actor appeared in, the average rating of a movie, or which genre has the most movies.
+
+## 23.1 Common aggregation functions
+
+| Function | Purpose |
+|---|---|
+| count(*) | Count input rows |
+| count(expression) | Count non-null values of an expression |
+| count(DISTINCT expression) | Count distinct non-null values |
+| collect(expression) | Gather non-null values into a list |
+| avg(expression) | Calculate the average of numeric values |
+| sum(expression) | Add numeric values |
+| min(expression) / max(expression) | Find the smallest or largest value |
+
+## 23.2 Grouping happens through non-aggregated expressions
+
+Cypher does not require a separate GROUP BY clause. The non-aggregated expressions in the RETURN or WITH clause define the grouping keys.
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN p.name AS actor, count(m) AS movieCount
+ORDER BY movieCount DESC;
+~~~
+
+Conceptually, Neo4j groups the matched rows by p.name and calculates count(m) for each group.
+
+If the query returns only an aggregate and no grouping expression, all input rows contribute to one summary row:
+
+~~~cypher
+MATCH (m:Movie)
+RETURN count(m) AS totalMovies;
+~~~
+
+## 23.3 collect(): turn matching values into a list
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WHERE p.name = 'Tom Hanks'
+RETURN p.name AS actor,
+       count(m) AS totalMovies,
+       collect(m.title) AS movies;
+~~~
+
+The result contains one row for Tom Hanks, a count, and a list of movie titles. Use collect(DISTINCT m.title) if duplicate titles should be removed from the list.
+
+collect() ignores null values. This matters when it is used with OPTIONAL MATCH: missing optional values are not added as null list elements.
+
+## 23.4 Aggregation with ratings
+
+~~~cypher
+MATCH (u:User)-[r:RATED]->(m:Movie)
+RETURN m.title AS movie,
+       count(r) AS numberOfRatings,
+       round(avg(r.rating) * 100) / 100.0 AS averageRating
+ORDER BY averageRating DESC;
+~~~
+
+This groups ratings by movie title and computes a count and average for each movie.
+
+## 23.5 Why aggregation can be a blocking stage
+
+Some aggregation operations must consume all relevant input rows for a group before the final group result can be produced. This is why aggregation can require memory and can behave as a blocking stage in an execution plan.
+
+For large inputs:
+
+- Filter early when the filter is semantically valid.
+- Return only the values needed for the aggregation.
+- Avoid collecting enormous lists if a count or summary is sufficient.
+- Use PROFILE to inspect actual rows, database hits, and execution operators.
+
+---
+
+# 24. Working with lists
+
+A Cypher list is an ordered collection of values. Lists are useful for storing related values, collecting query results, filtering values, and transforming data.
+
+## 24.1 Common list functions
+
+| Function | Meaning | Example |
+|---|---|---|
+| size(list) | Number of elements | size([10, 20, 30]) |
+| head(list) | First element | head([10, 20, 30]) |
+| last(list) | Last element | last([10, 20, 30]) |
+| tail(list) | All elements except the first | tail([10, 20, 30]) |
+| reverse(list) | Reverse element order | reverse([10, 20, 30]) |
+| range(start, end) | Generate an integer sequence | range(1, 5) |
+| split(text, separator) | Split text into a list | split('neo4j,cypher', ',') |
+
+List indexes are zero-based: the first item is at index 0.
+
+~~~cypher
+WITH ['Neo4j', 'Cypher', 'Graph'] AS topics
+RETURN topics[0] AS firstTopic,
+       topics[1] AS secondTopic,
+       size(topics) AS topicCount,
+       head(topics) AS first,
+       last(topics) AS final,
+       tail(topics) AS remaining;
+~~~
+
+## 24.2 List inclusion and membership
+
+Use IN to test whether a value is present in a list:
+
+~~~cypher
+MATCH (p:Person)
+WHERE p.name IN ['Tom Hanks', 'Meg Ryan', 'Tim Allen']
+RETURN p.name;
+~~~
+
+You can also filter a list with a list comprehension.
+
+## 24.3 List comprehensions
+
+A list comprehension creates a new list by iterating over an existing list. It can optionally filter elements and transform each retained element.
+
+General shape:
+
+~~~cypher
+[variable IN list WHERE condition | expression]
+~~~
+
+Example: keep only even numbers and multiply each by ten.
+
+~~~cypher
+WITH [1, 2, 3, 4, 5, 6] AS numbers
+RETURN [n IN numbers WHERE n % 2 = 0 | n * 10] AS transformed;
+~~~
+
+Result:
+
+~~~text
+[20, 40, 60]
+~~~
+
+The WHERE part is optional. The transformation after the pipe is also optional when the goal is simply to filter values.
+
+## 24.4 reduce(): calculate one value from a list
+
+reduce() processes a list from left to right while carrying an accumulator. It is useful when the output should be a single calculated value rather than another list.
+
+General shape:
+
+~~~cypher
+reduce(accumulator = initialValue, item IN list | expression)
+~~~
+
+Example: calculate the total of a list of ratings.
+
+~~~cypher
+WITH [5, 4, 3, 5] AS ratings
+RETURN reduce(total = 0, rating IN ratings | total + rating) AS totalRating;
+~~~
+
+The accumulator begins at zero. Each iteration adds the current rating to the running total.
+
+Example: calculate an average using collect() and reduce():
+
+~~~cypher
+MATCH (:User)-[r:RATED]->(:Movie {title: 'Toy Story'})
+WITH collect(r.rating) AS ratings
+WITH ratings,
+     reduce(total = 0.0, rating IN ratings | total + rating) AS total
+RETURN total / size(ratings) AS averageRating;
+~~~
+
+For production queries, avg(r.rating) is simpler for this particular task. The reduce() example is useful for understanding accumulator-based list processing.
+
+## 24.5 Converting lists
+
+Neo4j provides list conversion functions such as toStringList(), toIntegerList(), toFloatList(), and toBooleanList().
+
+~~~cypher
+WITH ['12', '7', 'not-a-number', null] AS rawValues
+RETURN toIntegerList(rawValues) AS integerValues;
+~~~
+
+Values that cannot be converted become null. A conversion does not guarantee that every list item is valid, so inspect or filter null results when data quality matters.
+
+---
+
+# 25. Working with maps and map projections
+
+A map is a collection of key-value pairs. It is useful for representing structured values, parameters, and application responses.
+
+## 25.1 Create and access a map
+
+~~~cypher
+WITH {
+  name: 'Tom Hanks',
+  born: 1956,
+  country: 'United States'
+} AS person
+RETURN person.name AS name,
+       person.born AS birthYear,
+       keys(person) AS availableKeys;
+~~~
+
+## 25.2 Return a node's properties as a map
+
+Use properties(node) to return the node's property map:
+
+~~~cypher
+MATCH (m:Movie {title: 'Toy Story'})
+RETURN properties(m) AS movieProperties;
+~~~
+
+This returns property values, not the node's labels or its relationships.
+
+## 25.3 Map projections
+
+A map projection builds a custom map from a node, relationship, or map. It is a clean way to return an application-friendly shape.
+
+~~~cypher
+MATCH (m:Movie {title: 'Toy Story'})
+RETURN m {
+  .title,
+  .released
+} AS movie;
+~~~
+
+The projection contains only the selected properties.
+
+You can also include all existing properties and add a computed field:
+
+~~~cypher
+MATCH (m:Movie {title: 'Toy Story'})
+RETURN m {
+  .*,
+  releaseLabel: toString(m.released)
+} AS movie;
+~~~
+
+Use a projection when the application needs a specific response structure rather than the full graph element.
+
+---
+
+# 26. Working with dates, times, and durations
+
+Neo4j supports temporal values. Use temporal types instead of storing dates as arbitrary strings when the application needs date comparison, sorting, arithmetic, or duration calculations.
+
+## 26.1 Common temporal constructors
+
+| Constructor | Represents | Example |
+|---|---|---|
+| date() | Calendar date | date('2026-11-27') |
+| time() | Time with time-zone offset | time('10:30:00+05:30') |
+| localtime() | Time without a time zone | localtime('10:30:00') |
+| datetime() | Date and time with time-zone information | datetime('2026-11-27T10:30:00+05:30') |
+| localdatetime() | Date and time without a time zone | localdatetime('2026-11-27T10:30:00') |
+
+Calling date() or datetime() without an argument uses the current temporal value available to the query.
+
+## 26.2 Extract components
+
+~~~cypher
+WITH date('2026-11-27') AS d,
+     datetime('2026-11-27T10:30:00+05:30') AS dt
+RETURN d.year AS year,
+       d.month AS month,
+       d.day AS dayOfMonth,
+       dt.hour AS hour,
+       dt.minute AS minute;
+~~~
+
+Temporal values have components such as year, month, day, hour, minute, and second. Use the components that answer the question instead of parsing a date string manually.
+
+## 26.3 Compare dates and calculate durations
+
+~~~cypher
+WITH date('2022-01-01') AS startDate,
+     date('2022-04-06') AS endDate
+RETURN duration.between(startDate, endDate) AS elapsed;
+~~~
+
+To obtain a whole-day duration:
+
+~~~cypher
+WITH date('2022-01-01') AS startDate,
+     date('2022-04-06') AS endDate
+RETURN duration.inDays(startDate, endDate).days AS elapsedDays;
+~~~
+
+A duration is not always equivalent to a fixed number of seconds. Months and years have variable lengths, so choose the appropriate temporal unit for the question.
+
+## 26.4 Add or subtract a duration
+
+~~~cypher
+WITH date('2022-01-01') AS startDate
+RETURN startDate + duration({months: 6}) AS sixMonthsLater;
+~~~
+
+You can also subtract a duration:
+
+~~~cypher
+WITH date('2026-11-27') AS today
+RETURN today - duration({days: 30}) AS thirtyDaysEarlier;
+~~~
+
+## 26.5 Format temporal values for display
+
+Use toString() when you need a string representation for display or export:
+
+~~~cypher
+WITH datetime('2026-11-27T10:30:00+05:30') AS eventTime
+RETURN toString(eventTime) AS eventTimeText;
+~~~
+
+Keep the value as a temporal type while performing comparisons and calculations. Convert it to a string at the presentation boundary.
+
+---
+
+# 27. Graph traversal, anchors, and query performance
+
+A graph query describes a pattern, but the database still has to decide where to start and how much of the graph to explore. Understanding the starting point, relationship direction, and traversal depth is essential for performance.
+
+## 27.1 What is an anchor?
+
+An anchor is a selective starting node or set of nodes from which a query expands through relationships.
+
+~~~cypher
+MATCH (p:Person {name: 'Eminem'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title;
+~~~
+
+The Person node matching the name is a natural anchor. If name has a suitable index, Neo4j may use it to locate that starting node efficiently before following ACTED_IN relationships.
+
+An anchor is not a special Cypher keyword. It is a modelling and query-planning concept.
+
+## 27.2 Prefer selective starting points
+
+A pattern that starts from every Person may produce many intermediate rows:
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN p.name, m.title;
+~~~
+
+A selective property predicate can reduce the number of starting nodes:
+
+~~~cypher
+MATCH (p:Person {name: 'Eminem'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title;
+~~~
+
+A label narrows the candidate population, while an index can accelerate a selective property lookup. Whether the index is used depends on the query, available indexes, statistics, and planner decisions.
+
+## 27.3 Multiple anchors and Cartesian products
+
+A query with two independent MATCH patterns can create a Cartesian product: every row from the first pattern is combined with every row from the second pattern.
+
+~~~cypher
+// Two independent patterns: may produce a Cartesian product.
+MATCH (p1:Person)
+MATCH (p2:Person)
+RETURN p1.name, p2.name;
+~~~
+
+If the first pattern finds 100 people and the second finds 100 people, the intermediate result can contain 10,000 pairs.
+
+If the two patterns are meant to describe connected data, connect them through shared variables and relationships:
+
+~~~cypher
+MATCH (p1:Person)-[:KNOWS]->(p2:Person)
+RETURN p1.name, p2.name;
+~~~
+
+A Cartesian product is not always wrong. It is appropriate when every combination is genuinely required, but it should be intentional.
+
+## 27.4 Traversal depth and path growth
+
+A variable-length pattern explores paths across multiple relationships. As depth and node degree increase, the number of possible paths can grow quickly.
+
+~~~cypher
+MATCH path = (start:Person {name: 'Eminem'})-[:KNOWS*1..3]->(other:Person)
+RETURN path;
+~~~
+
+This searches paths one to three KNOWS relationships long. Keep a sensible upper bound when the problem allows it, and constrain the starting node as much as possible.
+
+The number of paths is not necessarily the same as the number of unique destination nodes. A graph can contain multiple paths to the same node.
+
+## 27.5 Shortest paths
+
+For a shortest path between two known nodes, a commonly used Cypher form is:
+
+~~~cypher
+MATCH (a:Person {name: 'Eminem'}),
+      (b:Person {name: 'Dr. Dre'}),
+      path = shortestPath((a)-[*..6]-(b))
+RETURN path;
+~~~
+
+This asks Neo4j to find a shortest path with no more than six relationships between the endpoints. The pattern is undirected, so either relationship direction can be traversed.
+
+Use allShortestPaths() when all paths tied for the shortest length are required. Shortest-path syntax and supported path selectors can vary across Cypher versions; check the syntax supported by the target database.
+
+## 27.6 Inspect the plan instead of guessing
+
+~~~cypher
+EXPLAIN
+MATCH (p:Person {name: 'Eminem'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title;
+~~~
+
+EXPLAIN shows the planned operators without executing the query.
+
+~~~cypher
+PROFILE
+MATCH (p:Person {name: 'Eminem'})-[:ACTED_IN]->(m:Movie)
+RETURN m.title;
+~~~
+
+PROFILE executes the query and reports actual measurements. Compare estimated rows with actual rows, inspect database hits, and look for unexpectedly large intermediate results.
+
+## 27.7 A visual model of graph traversal
+
+~~~mermaid
+flowchart LR
+    A["Selective anchor lookup"] --> B["Starting node or nodes"]
+    B --> C["Follow matching relationship types"]
+    C --> D["Apply filters and path bounds"]
+    D --> E["Project or aggregate results"]
+    E --> F["Return records"]
+~~~
+
+The goal is not to minimize the number of nodes at all costs. The goal is to begin from a useful point and traverse only the relationships needed to answer the question.
+
+---
+
+# 28. Pipelining, UNWIND, subqueries, and UNION
+
+These constructs help break complex queries into manageable stages, expand list values into rows, and combine or isolate parts of a query.
+
+## 28.1 WITH as a pipeline boundary
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+WITH p, collect(m.title) AS movieTitles
+WHERE size(movieTitles) >= 2
+RETURN p.name, movieTitles;
+~~~
+
+The first stage finds movies for each person and collects the titles. The next stage filters people based on the list size. The final stage returns the desired values.
+
+## 28.2 UNWIND: turn list elements into rows
+
+UNWIND takes a list and produces one row for each element.
+
+~~~cypher
+UNWIND ['Neo4j', 'Cypher', 'Graph'] AS topic
+RETURN topic;
+~~~
+
+Conceptually:
+
+~~~text
+Input list: ['Neo4j', 'Cypher', 'Graph']
+
+UNWIND produces:
++---------+
+| topic   |
++---------+
+| Neo4j   |
+| Cypher  |
+| Graph   |
++---------+
+~~~
+
+UNWIND is useful for processing a parameter list, expanding collected values, or creating multiple graph records from one list.
+
+~~~cypher
+UNWIND ['Ada Lovelace', 'Grace Hopper', 'Alan Turing'] AS personName
+MERGE (:Person {name: personName});
+~~~
+
+## 28.3 CALL subqueries
+
+A subquery is a query nested inside another query. CALL executes the inner query for the rows supplied by the outer query, allowing each part to have its own scope.
+
+Example: calculate the number of five-star reviews for each movie.
+
+~~~cypher
+MATCH (m:Movie)
+CALL {
+  WITH m
+  MATCH (m)<-[r:RATED]-(:User)
+  WHERE r.rating = 5
+  RETURN count(r) AS fiveStarReviews
+}
+RETURN m.title, fiveStarReviews
+ORDER BY fiveStarReviews DESC;
+~~~
+
+The outer query supplies each movie. The inner query counts five-star ratings for that movie and returns the summary value to the outer query.
+
+The exact variable-import syntax for CALL subqueries differs between Cypher versions. The WITH-based form above is widely used in Cypher 5 examples; newer versions also support explicit variable scope clauses such as CALL (m) { ... }. Check the target server version before copying syntax.
+
+## 28.4 UNION and UNION ALL
+
+UNION combines the results of multiple query branches. Each branch must return the same number of columns with compatible types and matching column names.
+
+~~~cypher
+MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
+RETURN p.name AS person, m.title AS movie, 'Actor' AS role
+UNION
+MATCH (p:Person)-[:DIRECTED]->(m:Movie)
+RETURN p.name AS person, m.title AS movie, 'Director' AS role;
+~~~
+
+- UNION removes duplicate result rows.
+- UNION ALL keeps duplicate rows and can avoid the work required for duplicate elimination.
+
+A person who acted in and directed the same movie can appear in both branches with different role values, so those rows are not identical.
+
+## 28.5 Why combine subqueries with UNION?
+
+A subquery can isolate a UNION so that the combined result can be processed by the enclosing query.
+
+~~~cypher
+MATCH (p:Person)
+WITH p
+CALL {
+  WITH p
+  MATCH (p)-[:ACTED_IN]->(m:Movie)
+  RETURN m.title AS movie, 'Actor' AS role
+  UNION
+  WITH p
+  MATCH (p)-[:DIRECTED]->(m:Movie)
+  RETURN m.title AS movie, 'Director' AS role
+}
+RETURN p.name, collect({movie: movie, role: role}) AS credits;
+~~~
+
+This pattern collects a person's acting and directing credits into one result structure. The UNION branches return the same columns so their results can be combined.
+
+---
+
+# 29. Parameters and application queries
+
+Applications commonly execute Cypher through a Neo4j driver. Values should be passed as parameters instead of being concatenated into query strings.
+
+## 29.1 Use parameters for values
+
+~~~cypher
+MATCH (p:Person {personId: $personId})
+RETURN p.name, p.born;
+~~~
+
+The application supplies a parameter map such as:
+
+~~~json
+{
+  "personId": "person-101"
+}
+~~~
+
+The query text remains the same when the value changes. This improves query-plan reuse and avoids treating user input as executable Cypher text.
+
+## 29.2 Why parameters are better than string concatenation
+
+Avoid constructing a query by inserting raw user input into the query string.
+
+Unsafe application-code pattern:
+
+~~~text
+" MATCH (p:Person {name: '" + userInput + "'}) RETURN p "
+~~~
+
+Preferred pattern:
+
+~~~cypher
+MATCH (p:Person {name: $name})
+RETURN p;
+~~~
+
+Pass the value separately as the name parameter.
+
+Benefits:
+
+- Reduces Cypher injection risk for parameterized values.
+- Keeps query structure separate from data.
+- Makes repeated execution with different values easier.
+- Helps Neo4j reuse cached query plans where applicable.
+
+Parameters are intended for values. Labels, relationship types, and property identifiers are part of query structure; dynamic identifier support is version-dependent and should be handled using the documented syntax for the server version rather than by concatenating untrusted strings.
+
+---
+
+## Final learning checklist
+
+Use this checklist to test whether you can apply the concepts rather than only recognize their names.
+
+- [ ] Explain the difference between a taxonomy, an ontology, a domain graph, and a knowledge graph.
+- [ ] Identify nodes, labels, relationships, relationship properties, and node properties in a domain example.
+- [ ] Design a graph from real application questions and select useful anchor nodes.
+- [ ] Explain why labels do not automatically enforce a rigid schema or uniqueness.
+- [ ] Import CSV data using stable identifiers and correctly directed relationships.
+- [ ] Write MATCH, WHERE, OPTIONAL MATCH, WITH, RETURN, ORDER BY, SKIP, and LIMIT queries.
+- [ ] Explain how WITH controls variable scope.
+- [ ] Use count, collect, avg, sum, and DISTINCT for aggregation.
+- [ ] Use list functions, list comprehensions, and reduce.
+- [ ] Return custom maps using map projections.
+- [ ] Compare dates and calculate durations with temporal values.
+- [ ] Explain anchor selection, traversal depth, Cartesian products, and shortest paths.
+- [ ] Use UNWIND, CALL subqueries, UNION, and UNION ALL.
+- [ ] Parameterize application queries and inspect execution plans with PROFILE.
+
+*Version note: Cypher syntax and available features evolve. These examples use widely used Cypher forms; confirm compatibility with the Neo4j server version used by your project before running them in production.*
